@@ -8,15 +8,55 @@ import {
   decrypt
 } from "./crypto";
 
+// TODO: move
+const GLOBAL_PREFIX = "//crypto//:";
+
+let times: number[] = [];
+
+const appendTime = (time: number) => {
+  times.push(time);
+  const sum = times.reduce((a, b) => a + b, 0);
+  const avg = sum / times.length || 0;
+
+  console.log(`${times.length}\nAVG: ${avg}\nTOTAL: ${sum / 1000} seconds`);
+};
+
 const observer = new MutationObserver(mutations => {
-  mutations.forEach(mutation => {
-    // console.log("new mutation", mutation);
+  const tabId = location.href;
+
+  const t0 = performance.now();
+  mutations.forEach(async mutation => {
+    mutation.addedNodes.forEach(async parentNode => {
+      if (parentNode.textContent?.includes(GLOBAL_PREFIX)) {
+        const xpath = `.//*[contains(text(), '${GLOBAL_PREFIX}')]`;
+        const evalResult = document.evaluate(
+          xpath,
+          parentNode,
+          null,
+          XPathResult.UNORDERED_NODE_SNAPSHOT_TYPE,
+          null
+        );
+
+        // snapshot
+        for (let i = 0; i < evalResult.snapshotLength; i++) {
+          const node = evalResult.snapshotItem(i);
+          if (node?.textContent?.includes(GLOBAL_PREFIX)) {
+            const msg = await decipherMessage(tabId, node.textContent!);
+            node.textContent = msg;
+          } else {
+            console.log("ALREADY SWAPPED!!", node);
+          }
+        }
+      }
+    });
   });
+  const t1 = performance.now();
+  appendTime(t1 - t0);
 });
 
 observer.observe(document.body, {
   childList: true,
-  characterData: true,
+  characterData: false,
   subtree: true
 });
 
@@ -25,13 +65,13 @@ browser.runtime.onMessage.addListener(async msg => {
     case "start": {
       await start(msg.id);
 
-      window.addEventListener(
-        "keypress",
-        e => {
-          console.log("keypress", e);
-        },
-        { passive: true }
-      );
+      // window.addEventListener(
+      //   "keypress",
+      //   e => {
+      //     console.log("keypress", e);
+      //   },
+      //   { passive: true }
+      // );
 
       return;
       // https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/runtime/onMessage
@@ -90,11 +130,18 @@ export async function start(tabId: string) {
 
   // compute secret for initiator
   const secret = computeSecret(p1, p2Key);
-  await browser.storage.sync.set({ [tabId]: secret });
+  const { tabId: storage } = await browser.storage.sync.get(tabId);
+  if (storage) {
+    const timestamp = new Date().valueOf();
+    console.log(
+      "Secret for this URL already exists, creating new one with timestamp: ",
+      timestamp
+    );
+    await browser.storage.sync.set({ [`${tabId}-${timestamp}`]: secret });
+  } else {
+    await browser.storage.sync.set({ [tabId]: secret });
+  }
 }
-
-// TODO: move
-const GLOBAL_PREFIX = "//crypto//:";
 
 export async function sendMessage(tabId: string, text: string) {
   const secret = (await browser.storage.sync.get(tabId))[tabId];

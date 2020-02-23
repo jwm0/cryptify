@@ -88,11 +88,15 @@ export function encrypt(text: string, key: string) {
 }
 
 export function decrypt(text: string, key: string) {
-  const ciphertext = text.split(":");
-  let iv = Buffer.from(ciphertext[0], ENCODING);
-  let encryptedText = Buffer.from(ciphertext[1], ENCODING);
-  let decipher = crypto.createDecipheriv(CIPHER, key, iv);
-  let decrypted = decipher.update(encryptedText);
-  decrypted = Buffer.concat([decrypted, decipher.final()]);
-  return decrypted.toString();
+  try {
+    const ciphertext = text.split(":");
+    let iv = Buffer.from(ciphertext[0], ENCODING);
+    let encryptedText = Buffer.from(ciphertext[1], ENCODING);
+    let decipher = crypto.createDecipheriv(CIPHER, key, iv);
+    let decrypted = decipher.update(encryptedText);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    return decrypted.toString();
+  } catch (e) {
+    return text;
+  }
 }

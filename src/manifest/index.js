@@ -1,7 +1,7 @@
 const pkg = require("../../package.json");
 
 const manifestInput = {
-  manifest_version: 1,
+  manifest_version: 2,
   name: "Cryptify",
   version: pkg.version,
 
