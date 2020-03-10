@@ -9,7 +9,7 @@ const manifestInput = {
     "16": "assets/icons/favicon-16.png",
     "32": "assets/icons/favicon-32.png",
     "48": "assets/icons/favicon-48.png",
-    "128": "assets/icons/favicon-128.png"
+    "128": "assets/icons/favicon-128.png",
   },
 
   description: "Secure your messages",
@@ -22,17 +22,17 @@ const manifestInput = {
     "http://*/*",
     "https://*/*",
     "contextMenus",
-    "clipboardRead"
+    "clipboardRead",
   ],
   content_security_policy: "script-src 'self' 'unsafe-eval'; object-src 'self'",
 
   "__chrome|firefox__author": "jwm0",
   __opera__developer: {
-    name: "jwm0"
+    name: "jwm0",
   },
 
   __firefox__applications: {
-    gecko: { id: "{754FB1AD-CC3B-4856-B6A0-7786F8CA9D17}" }
+    gecko: { id: "{754FB1AD-CC3B-4856-B6A0-7786F8CA9D17}" },
   },
 
   __chrome__minimum_chrome_version: "49",
@@ -44,11 +44,11 @@ const manifestInput = {
       "16": "assets/icons/favicon-16.png",
       "32": "assets/icons/favicon-32.png",
       "48": "assets/icons/favicon-48.png",
-      "128": "assets/icons/favicon-128.png"
+      "128": "assets/icons/favicon-128.png",
     },
     default_title: "tiny title",
     "__chrome|opera__chrome_style": false,
-    __firefox__browser_style: false
+    __firefox__browser_style: false,
   },
 
   "__chrome|opera__options_page": "options.html",
@@ -56,20 +56,20 @@ const manifestInput = {
   options_ui: {
     page: "options.html",
     open_in_tab: true,
-    __chrome__chrome_style: false
+    __chrome__chrome_style: false,
   },
 
   background: {
     scripts: ["js/background.bundle.js"],
-    "__chrome|opera__persistent": false
+    "__chrome|opera__persistent": false,
   },
 
   content_scripts: [
     {
       matches: ["http://*/*", "https://*/*"],
-      js: ["js/contentScript.bundle.js", "js/encryptSelection.bundle.js"]
-    }
-  ]
+      js: ["js/contentScript.bundle.js"],
+    },
+  ],
 };
 
 module.exports = manifestInput;
