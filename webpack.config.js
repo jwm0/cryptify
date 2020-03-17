@@ -29,8 +29,8 @@ const extensionReloaderPlugin =
           // TODO: reload manifest on update
           contentScript: "contentScript",
           background: "background",
-          extensionPage: ["popup", "options"]
-        }
+          extensionPage: ["popup", "options"],
+        },
       })
     : () => {
         this.apply = () => {};
@@ -56,12 +56,11 @@ module.exports = {
     contentScript: path.join(sourcePath, "ContentScript", "index.ts"),
     popup: path.join(sourcePath, "Popup", "index.tsx"),
     options: path.join(sourcePath, "Options", "index.tsx"),
-    encryptSelection: path.join(sourcePath, "ContentScript", "selection.ts")
   },
 
   output: {
     filename: "js/[name].bundle.js",
-    path: path.join(destPath, targetBrowser)
+    path: path.join(destPath, targetBrowser),
   },
 
   resolve: {
@@ -69,8 +68,8 @@ module.exports = {
     alias: {
       "webextension-polyfill-ts": path.resolve(
         path.join(__dirname, "node_modules", "webextension-polyfill-ts")
-      )
-    }
+      ),
+    },
   },
 
   module: {
@@ -78,33 +77,33 @@ module.exports = {
       {
         test: /\.(js|ts|tsx)?$/,
         loader: "awesome-typescript-loader",
-        exclude: /node_modules/
+        exclude: /node_modules/,
       },
       {
         test: /\.(sa|sc|c)ss$/,
         use: [
           {
-            loader: MiniCssExtractPlugin.loader // It creates a CSS file per JS file which contains CSS
+            loader: MiniCssExtractPlugin.loader, // It creates a CSS file per JS file which contains CSS
           },
           {
             loader: "css-loader", // Takes the CSS files and returns the CSS with imports and url(...) for Webpack
             options: {
-              sourceMap: true
-            }
+              sourceMap: true,
+            },
           },
           {
             loader: "postcss-loader", // For autoprefixer
             options: {
               ident: "postcss",
               // eslint-disable-next-line global-require, @typescript-eslint/no-var-requires
-              plugins: [require("autoprefixer")()]
-            }
+              plugins: [require("autoprefixer")()],
+            },
           },
           "resolve-url-loader", // Rewrites relative paths in url() statements
-          "sass-loader" // Takes the Sass/SCSS file and compiles to the CSS
-        ]
-      }
-    ]
+          "sass-loader", // Takes the Sass/SCSS file and compiles to the CSS
+        ],
+      },
+    ],
   },
 
   plugins: [
@@ -119,22 +118,22 @@ module.exports = {
         path.join(
           process.cwd(),
           `extension/${targetBrowser}.${getExtensionFileType(targetBrowser)}`
-        )
+        ),
       ],
       cleanStaleWebpackAssets: false,
-      verbose: true
+      verbose: true,
     }),
     new HtmlWebpackPlugin({
       template: path.join(viewsPath, "popup.html"),
       inject: "body",
       chunks: ["popup"],
-      filename: "popup.html"
+      filename: "popup.html",
     }),
     new HtmlWebpackPlugin({
       template: path.join(viewsPath, "options.html"),
       inject: "body",
       chunks: ["options"],
-      filename: "options.html"
+      filename: "options.html",
     }),
     // write css file(s) to build folder
     new MiniCssExtractPlugin({ filename: "css/[name].css" }),
@@ -142,23 +141,23 @@ module.exports = {
     new CopyWebpackPlugin([{ from: "src/assets", to: "assets" }]),
     // write manifest.json
     new WriteWebpackPlugin([
-      { name: manifest.name, data: Buffer.from(manifest.content) }
+      { name: manifest.name, data: Buffer.from(manifest.content) },
     ]),
     // plugin to enable browser reloading in development mode
-    extensionReloaderPlugin
+    extensionReloaderPlugin,
   ],
 
   optimization: {
     minimizer: [
       new TerserPlugin({
         cache: true,
-        parallel: true
+        parallel: true,
       }),
       new ZipPlugin({
         path: destPath,
         extension: `${getExtensionFileType(targetBrowser)}`,
-        filename: `${targetBrowser}`
-      })
-    ]
-  }
+        filename: `${targetBrowser}`,
+      }),
+    ],
+  },
 };

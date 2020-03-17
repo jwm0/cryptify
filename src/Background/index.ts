@@ -23,24 +23,26 @@ browser.contextMenus.create({
 });
 
 browser.contextMenus.onClicked.addListener(async (info, tab) => {
+  const hostname = tab && new URL(tab.url || "").hostname;
+
   switch (info.menuItemId) {
     case "cryptify-start":
       console.log("START");
       browser.tabs.sendMessage(tab?.id!, {
         type: "start",
-        id: tab?.url
+        id: hostname
       });
       break;
     case "encrypt":
       browser.tabs.sendMessage(tab?.id!, {
         type: "encrypt",
-        id: tab?.url
+        id: hostname
       });
       break;
     case "decrypt":
       browser.tabs.sendMessage(tab?.id!, {
         type: "decrypt",
-        id: tab?.url
+        id: hostname
       });
       break;
     default:

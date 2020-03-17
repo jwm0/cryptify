@@ -1,101 +1,230 @@
-import crypto from "crypto";
+const EC_VARIANT = "ECDH";
+const NAMED_CURVE = "P-384";
 
-// TODO: USE WINDOW.CRYPTO instead (async)
+function arrayBufferToString(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+  const binary = bytes.reduce(
+    (acc, byte) => acc + String.fromCharCode(byte),
+    ""
+  );
 
-// CONSTANTS
-// const MESSAGE = process.argv[2];
-const CIPHER = "aes256";
-const ENCODING = "base64";
-
-// p1 - initiator
-// const { p1, handshake } = sendHandshake();
-// console.log("handshake: ", handshake);
-
-// // p2 - receiver, first one to compute a secret
-// const p2Key = acceptHandshake(handshake);
-// console.log("handshake response", p2Key);
-
-// // compute secret for initiator
-// const iv = crypto.randomBytes(16);
-// const p1Secret = p1.computeSecret(p2Key, ENCODING);
-// SECRET = crypto
-//   .createHash("sha256")
-//   .update(p1Secret)
-//   .digest(ENCODING)
-//   .substr(0, 32);
-
-// console.log("SECRET: ", SECRET.toString(ENCODING));
-
-// const encrypted = encrypt(MESSAGE, SECRET);
-// console.log("encrypted message: ", encrypted);
-
-// const originalText = decrypt(encrypted, SECRET);
-// console.log("decrypted message: ", originalText);
-
-// Generate random IV
-export function generateIv() {
-  const iv = crypto.randomBytes(16);
-
-  return iv;
+  return binary;
 }
 
-// Compute secret
-export function computeSecret(p: crypto.DiffieHellman, foreignKey: string) {
-  const pSecret = p.computeSecret(foreignKey, ENCODING);
-  const secret = crypto
-    .createHash("sha256")
-    .update(pSecret)
-    .digest(ENCODING)
-    .substr(0, 32);
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const binary = arrayBufferToString(buffer);
 
-  return secret;
+  return window.btoa(binary);
+}
+
+function encodeIV(iv: Uint8Array) {
+  const binary = iv.reduce((acc, byte) => acc + String.fromCharCode(byte), "");
+
+  return window.btoa(binary);
+}
+
+function decodeIV(base64: string) {
+  const str = window.atob(base64);
+  const buf = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; i++) {
+    buf[i] = str.charCodeAt(i);
+  }
+
+  return buf;
+}
+
+function stringToArrayBuffer(str: string): ArrayBuffer {
+  const buf = new ArrayBuffer(str.length);
+  const bufView = new Uint8Array(buf);
+  for (let i = 0; i < str.length; i++) {
+    bufView[i] = str.charCodeAt(i);
+  }
+
+  return buf;
+}
+
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const str = window.atob(base64);
+
+  return stringToArrayBuffer(str);
+}
+
+function getECKey(base64: string, format: "raw" | "pkcs8") {
+  return crypto.subtle.importKey(
+    format,
+    base64ToArrayBuffer(base64),
+    {
+      name: EC_VARIANT,
+      namedCurve: NAMED_CURVE,
+    },
+    false,
+    format === "raw" ? [] : ["deriveKey"]
+  );
+}
+
+function getSecretFromBase64(base64: string) {
+  const buffer = base64ToArrayBuffer(base64);
+
+  return crypto.subtle.importKey(
+    "raw",
+    buffer,
+    {
+      name: "AES-GCM",
+      length: 256,
+    },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+export async function computeSecret(
+  privateKey: CryptoKey,
+  publicKey: CryptoKey
+) {
+  const secretKey = await window.crypto.subtle.deriveKey(
+    {
+      name: EC_VARIANT,
+      public: publicKey,
+    },
+    privateKey,
+    {
+      name: "AES-GCM",
+      length: 256,
+    },
+    true,
+    ["encrypt", "decrypt"]
+  );
+
+  const buffer = await window.crypto.subtle.exportKey("raw", secretKey);
+
+  return arrayBufferToBase64(buffer);
 }
 
 // Generate p1's keys and return handshake pattern
-export function sendHandshake() {
-  const p1 = crypto.createDiffieHellman(128);
-  const p1Key = p1.generateKeys();
+export async function sendHandshake() {
+  const p = await window.crypto.subtle.generateKey(
+    {
+      name: EC_VARIANT,
+      namedCurve: NAMED_CURVE,
+    },
+    true,
+    ["deriveKey"]
+  );
+
+  const publicKeyBuffer = await window.crypto.subtle.exportKey(
+    "raw",
+    p.publicKey
+  );
+  const privateKeyBuffer = await window.crypto.subtle.exportKey(
+    "pkcs8",
+    p.privateKey
+  );
+  const publicKey = arrayBufferToBase64(publicKeyBuffer);
+  const privateKey = arrayBufferToBase64(privateKeyBuffer);
+
+  console.log({ publicKey, privateKey });
+
+  // use unix timestamp for conversation id
+  const conversationId = new Date().valueOf();
 
   return {
-    handshake:
-      p1.getPrime(ENCODING) +
-      ":" +
-      p1.getGenerator(ENCODING) +
-      ":" +
-      p1Key.toString(ENCODING),
-    p1
+    conversationId,
+    handshake: conversationId + ":" + publicKey,
+    publicKey,
+    privateKey,
+  };
+}
+
+function decodeHandshake(handshake: string) {
+  const [conversationId, foreignKey] = handshake.split(":");
+
+  return {
+    conversationId,
+    foreignKey,
   };
 }
 
 // Take handshake pattern and create own
-export function acceptHandshake(handshake: string) {
-  const [prime, generator, key] = handshake.split(":");
-  const p2 = crypto.createDiffieHellman(prime, ENCODING, generator, ENCODING);
-  const p2Key = p2.generateKeys();
-  // <---SECRET--->
-  const secret = computeSecret(p2, key);
+export async function acceptHandshake(handshake: string) {
+  const { conversationId, foreignKey } = decodeHandshake(handshake);
 
-  return p2Key.toString(ENCODING);
+  const p = await window.crypto.subtle.generateKey(
+    {
+      name: EC_VARIANT,
+      namedCurve: NAMED_CURVE,
+    },
+    false,
+    ["deriveKey"]
+  );
+
+  const publicKeyBuffer = await window.crypto.subtle.exportKey(
+    "raw",
+    p.publicKey
+  );
+  const publicKey = arrayBufferToBase64(publicKeyBuffer);
+  const foreignCryptoKey = await getECKey(foreignKey, "raw");
+
+  const secret = await computeSecret(p.privateKey, foreignCryptoKey);
+
+  return {
+    publicKey,
+    secret,
+    conversationId,
+    handshakeResponse: conversationId + ":" + publicKey,
+  };
 }
 
-export function encrypt(text: string, key: string) {
-  const iv = generateIv();
-  let cipher = crypto.createCipheriv(CIPHER, key, iv);
-  let encrypted = cipher.update(text);
-  encrypted = Buffer.concat([encrypted, cipher.final()]);
+// Get handshake response and compute secret for OP
+export async function finalizeHandshake(
+  handshakeResponse: string,
+  privateKey: string
+) {
+  const { conversationId, foreignKey } = decodeHandshake(handshakeResponse);
+  const privateCryptoKey = await getECKey(privateKey, "pkcs8");
+  const publicForeignKey = await getECKey(foreignKey, "raw");
 
-  return iv.toString(ENCODING) + ":" + encrypted.toString(ENCODING);
+  const secret = await computeSecret(privateCryptoKey, publicForeignKey);
+
+  return {
+    secret,
+    conversationId,
+  };
 }
 
-export function decrypt(text: string, key: string) {
+export async function encrypt(text: string, key: string) {
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const encoded = stringToArrayBuffer(text);
+  const secret = await getSecretFromBase64(key);
+
+  const dataBuffer = await window.crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv,
+    },
+    secret,
+    encoded
+  );
+
+  return encodeIV(iv) + ":" + arrayBufferToBase64(dataBuffer);
+}
+
+export async function decrypt(text: string, key: string) {
   try {
-    const ciphertext = text.split(":");
-    let iv = Buffer.from(ciphertext[0], ENCODING);
-    let encryptedText = Buffer.from(ciphertext[1], ENCODING);
-    let decipher = crypto.createDecipheriv(CIPHER, key, iv);
-    let decrypted = decipher.update(encryptedText);
-    decrypted = Buffer.concat([decrypted, decipher.final()]);
-    return decrypted.toString();
+    const [encodedIv, ciphertext] = text.split(":");
+    const iv = decodeIV(encodedIv);
+    const dataBuffer = base64ToArrayBuffer(ciphertext);
+    const secret = await getSecretFromBase64(key);
+
+    const decryptedBuffer = await window.crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv,
+      },
+      secret,
+      dataBuffer
+    );
+
+    return arrayBufferToString(decryptedBuffer);
   } catch (e) {
     return text;
   }
