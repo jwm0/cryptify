@@ -10,7 +10,10 @@
     "jsx-a11y/label-has-associated-control": 0,
     "quotes": "off",
     "prefer-template": "off",
+    "jsx-a11y/no-autofocus": "off",
     "@typescript-eslint/no-use-before-define": "off",
+    "@typescript-eslint/explicit-function-return-type": "off",
+    "@typescript-eslint/ban-ts-ignore": "off",
     "prettier/prettier": [
       "error",
       {

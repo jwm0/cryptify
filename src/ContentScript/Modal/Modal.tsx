@@ -1,9 +1,10 @@
 import React from "react";
 
-export const Modal: React.FC<{ handleSubmit?: () => void }> = ({
-  handleSubmit,
-  children,
-}) => {
+type Props = {
+  handleSubmit?: () => void;
+};
+
+export const Modal: React.FC<Props> = ({ handleSubmit, children }) => {
   return (
     <form
       style={{
@@ -21,7 +22,7 @@ export const Modal: React.FC<{ handleSubmit?: () => void }> = ({
     >
       <div
         style={{
-          backgroundColor: "#fff",
+          backgroundColor: "#160A47",
           padding: "20px 40px",
           borderRadius: "20px",
         }}

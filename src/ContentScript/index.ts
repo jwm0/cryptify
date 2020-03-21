@@ -1,14 +1,10 @@
 import { browser } from "webextension-polyfill-ts";
-import ReactDOM from "react-dom";
-import { createElement } from "react";
 
-import { Select } from "./Select";
-import { Input } from "./Input";
+import { ReactController } from "./ReactController";
 
 import {
   sendHandshake,
   acceptHandshake,
-  computeSecret,
   encrypt,
   decrypt,
   finalizeHandshake,
@@ -16,46 +12,49 @@ import {
 
 // TODO: move
 const GLOBAL_PREFIX = "crypto//";
+const GLOBAL_SUFFIX = "//crypto-end";
 const HANDSHAKE_INIT_PREFIX = "crypto-init//";
 const HANDSHAKE_ACCEPT_PREFIX = "crypto-accept//";
-
-const times: number[] = [];
 const tabId = window.location.hostname;
 
-// create root node for React injection
-const rootNode = document.createElement("div");
-rootNode.id = "root-cryptify";
-document.body.appendChild(rootNode);
+const reactHandler = new ReactController();
 
-const appendTime = (time: number) => {
-  times.push(time);
-  const sum = times.reduce((a, b) => {
-    return a + b;
-  }, 0);
-  const avg = sum / times.length || 0;
+// const times: number[] = [];
+// const appendTime = (time: number) => {
+//   times.push(time);
+//   const sum = times.reduce((a, b) => {
+//     return a + b;
+//   }, 0);
+//   const avg = sum / times.length || 0;
 
-  console.log(`${times.length}\nAVG: ${avg}\nTOTAL: ${sum / 1000} seconds`);
-};
+//   console.log(`${times.length}\nAVG: ${avg}\nTOTAL: ${sum / 1000} seconds`);
+// };
 
-const findAndReplaceNodes = <T extends readonly string[]>(
-  node: Node,
+const findAndReplaceNodes = async <T extends readonly string[]>(
+  node: HTMLElement,
   prefixText: T[number],
-  fn: (text: string) => void,
+  fn: (text: string) => Promise<void | string>,
   replaceText?: string
-): void => {
+) => {
   const text = node.textContent;
 
   if (text?.includes(prefixText)) {
-    const index = text.indexOf(prefixText);
-    // TODO: stitch back original text
-    // const preString = text.slice(0, index);
-    const [match, ...postString] = text.slice(index).split(" ");
+    const html = node.innerHTML;
+    const startIndex = html.indexOf(prefixText);
+    const endIndex = html.indexOf(GLOBAL_SUFFIX);
+    const preString = html.slice(0, startIndex);
+    const match = html.slice(startIndex + prefixText.length, endIndex);
+    const postString = html.slice(endIndex + GLOBAL_SUFFIX.length);
 
     if (replaceText) {
-      node.textContent = replaceText;
+      node.innerHTML = preString + replaceText + postString;
     }
 
-    fn(match.slice(prefixText.length));
+    const result = await fn(match);
+
+    if (result) {
+      node.innerHTML = preString + result + postString;
+    }
   }
 };
 
@@ -88,7 +87,7 @@ const watch = (parentNode: Node) => {
 
     // snapshot
     for (let i = 0; i < evalResult.snapshotLength; i++) {
-      const node = evalResult.snapshotItem(i);
+      const node = evalResult.snapshotItem(i) as HTMLElement;
 
       if (node) {
         // decipher messages
@@ -96,10 +95,9 @@ const watch = (parentNode: Node) => {
           node,
           GLOBAL_PREFIX,
           async text => {
-            const msg = await decipherMessage(tabId, text);
-            if (msg) {
-              node.textContent = msg;
-            }
+            const msg = await decipherMessage(text);
+
+            return msg;
           }
         );
 
@@ -116,36 +114,29 @@ const watch = (parentNode: Node) => {
               storage[tabId];
 
             if (!tabSecrets?.[conversationId]) {
-              ReactDOM.render(
-                createElement(Input, {
-                  handleSubmit: async value => {
-                    ReactDOM.unmountComponentAtNode(rootNode);
+              reactHandler.openInput(async value => {
+                const { secret, handshakeResponse } = await acceptHandshake(
+                  handshake
+                );
 
-                    const { secret, handshakeResponse } = await acceptHandshake(
-                      handshake
-                    );
-
-                    await browser.storage.sync.set({
-                      [tabId]: {
-                        ...tabSecrets,
-                        [conversationId]: {
-                          alias: value,
-                          secret,
-                        },
-                      },
-                    });
-
-                    // send back public key
-                    await navigator.clipboard.writeText(
-                      HANDSHAKE_ACCEPT_PREFIX + handshakeResponse
-                    );
-                    alert(
-                      "Public key copied to clipboard! Paste it in the conversation"
-                    );
+                await browser.storage.sync.set({
+                  [tabId]: {
+                    ...tabSecrets,
+                    [conversationId]: {
+                      alias: value,
+                      secret,
+                    },
                   },
-                }),
-                rootNode
-              );
+                });
+
+                // send back public key
+                await navigator.clipboard.writeText(
+                  HANDSHAKE_ACCEPT_PREFIX + handshakeResponse + GLOBAL_SUFFIX
+                );
+                alert(
+                  "Public key copied to clipboard! Paste it in the conversation"
+                );
+              });
             }
           },
           "👋"
@@ -168,8 +159,6 @@ const watch = (parentNode: Node) => {
                   };
                 }
               | undefined = storage[tabId];
-
-            debugger;
 
             const privateKey = tabSecrets?.[conversationId]?.privateKey;
             // if privateKey exists compute a secret
@@ -201,13 +190,13 @@ const watch = (parentNode: Node) => {
 };
 
 const observer = new MutationObserver(mutations => {
-  const t0 = performance.now();
+  // const t0 = performance.now();
   mutations.forEach(async mutation => {
     mutation.addedNodes.forEach(async parentNode => {
       watch(parentNode);
     });
   });
-  const t1 = performance.now();
+  // const t1 = performance.now();
   // appendTime(t1 - t0);
 });
 
@@ -223,40 +212,30 @@ browser.runtime.onMessage.addListener(async msg => {
     case "start": {
       const inputElement = document.activeElement as HTMLElement;
 
-      ReactDOM.render(
-        createElement(Input, {
-          handleSubmit: async value => {
-            ReactDOM.unmountComponentAtNode(rootNode);
-            const {
+      reactHandler.openInput(async value => {
+        const { privateKey, handshake, conversationId } = await sendHandshake();
+
+        const storage = await browser.storage.sync.get(msg.id);
+        const tabSecrets: { [key: string]: string } | undefined =
+          storage[msg.id];
+        await browser.storage.sync.set({
+          [msg.id]: {
+            ...tabSecrets,
+            [conversationId]: {
+              alias: value,
               privateKey,
-              handshake,
-              conversationId,
-            } = await sendHandshake();
-
-            const storage = await browser.storage.sync.get(msg.id);
-            const tabSecrets: { [key: string]: string } | undefined =
-              storage[msg.id];
-            await browser.storage.sync.set({
-              [msg.id]: {
-                ...tabSecrets,
-                [conversationId]: {
-                  alias: value,
-                  privateKey,
-                },
-              },
-            });
-
-            await navigator.clipboard.writeText(
-              HANDSHAKE_INIT_PREFIX + handshake
-            );
-            if (inputElement.focus) {
-              inputElement.focus();
-            }
-            document.execCommand("paste");
+            },
           },
-        }),
-        rootNode
-      );
+        });
+
+        await navigator.clipboard.writeText(
+          HANDSHAKE_INIT_PREFIX + handshake + GLOBAL_SUFFIX
+        );
+        if (inputElement.focus) {
+          inputElement.focus();
+        }
+        document.execCommand("paste");
+      });
 
       return;
       // https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/runtime/onMessage
@@ -269,45 +248,41 @@ browser.runtime.onMessage.addListener(async msg => {
 
       if (node && text) {
         const secrets = (await browser.storage.sync.get(msg.id))[msg.id];
-        const aliases = Object.keys(secrets).map(id => ({
-          alias: secrets[id].alias,
-          id,
-        }));
+        const aliases = Object.keys(secrets)
+          .filter(id => secrets[id].secret)
+          .map(id => ({
+            alias: secrets[id].alias,
+            id,
+          }));
 
-        ReactDOM.render(
-          createElement(Select, {
-            options: aliases,
-            handleSelect: async id => {
-              ReactDOM.unmountComponentAtNode(rootNode);
-              const encryptedMessage = await sendMessage(
-                id,
-                secrets[id].secret,
-                text
-              );
-              // reselect the text
-              const range = document.createRange();
-              range.selectNodeContents(node);
-              selection?.addRange(range);
+        reactHandler.openSelect(async id => {
+          const encryptedMessage = await sendMessage(
+            id,
+            secrets[id].secret,
+            text
+          );
+          // reselect the text
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          selection?.addRange(range);
 
-              try {
-                // OPTIONAL FEATURE: Persist previous clipboard state
-                // WARNING: This will trigger Permissions API and display dialog
-                // const _clipboard = await navigator.clipboard.readText();
-                // console.log(_clipboard);
+          try {
+            // OPTIONAL FEATURE: Persist previous clipboard state
+            // WARNING: This will trigger Permissions API and display dialog
+            // const _clipboard = await navigator.clipboard.readText();
+            // console.log(_clipboard);
 
-                await navigator.clipboard.writeText(encryptedMessage);
-                document.execCommand("paste");
-                await navigator.clipboard.writeText(""); // clear clipboard
-                // or restore
-                // await navigator.clipboard.writeText(_clipboard);
-              } catch (e) {
-                console.warn("Clipboard API permission denied");
-              }
-            },
-          }),
-          rootNode
-        );
+            await navigator.clipboard.writeText(encryptedMessage);
+            document.execCommand("paste");
+            await navigator.clipboard.writeText(""); // clear clipboard
+            // or restore
+            // await navigator.clipboard.writeText(_clipboard);
+          } catch (e) {
+            console.warn("Clipboard API permission denied");
+          }
+        }, aliases);
       }
+
       return;
     }
 
@@ -317,7 +292,7 @@ browser.runtime.onMessage.addListener(async msg => {
       const text = selection?.toString();
 
       if (node && text) {
-        const deciphered = await decipherMessage(msg.id, text);
+        const deciphered = await decipherMessage(text);
         if (deciphered) {
           node.textContent = deciphered;
         }
@@ -325,6 +300,7 @@ browser.runtime.onMessage.addListener(async msg => {
 
       return;
     }
+
     default:
       return;
   }
@@ -333,20 +309,44 @@ browser.runtime.onMessage.addListener(async msg => {
 export async function sendMessage(id: string, secret: string, text: string) {
   const encryptedMsg = await encrypt(text, secret);
 
-  return GLOBAL_PREFIX + id + ":" + encryptedMsg;
+  return GLOBAL_PREFIX + id + ":" + encryptedMsg + GLOBAL_SUFFIX;
 }
 
-export async function decipherMessage(tabId: string, cipherText: string) {
+export async function decipherMessage(cipherText: string) {
   const [conversationId, ...encrypted] = cipherText.split(":");
   // TODO: Check how costly is this operation, consider moving it outside the fn
   const store = await browser.storage.sync.get(tabId);
   const secret = store?.[tabId]?.[conversationId]?.secret;
 
   if (!secret) {
-    return false;
+    return;
   }
 
   const decryptedMessage = await decrypt(encrypted.join(":"), secret);
 
   return decryptedMessage;
 }
+
+// Exampe usage:
+// async function start() {
+//   // browser.storage.sync.clear();
+//   // p1 - initiator
+//   const { privateKey, handshake } = await sendHandshake();
+//   console.log("p1 sent a handshake:", { privateKey, handshake });
+
+//   // p2 - receiver, first one to compute a secret
+//   const { secret: secret2, handshakeResponse } = await acceptHandshake(
+//     handshake
+//   );
+
+//   // compute secret for initiator
+//   const { secret } = await finalizeHandshake(handshakeResponse, privateKey);
+
+//   console.log("p1 secret", secret);
+//   console.log("p2 secret", secret2);
+
+//   const text = "Ala ma kota";
+//   const encrypted = await encrypt(text, secret);
+//   const decrypted = await decrypt(text, secret2);
+//   console.log({ encrypted, decrypted });
+// }

@@ -2,18 +2,22 @@ import React from "react";
 
 import { Modal } from "../Modal";
 
-type Props = {
+export type SelectProps = {
   options: { id: string; alias: string }[];
   handleSelect: (value: string) => void;
 };
 
-export const Select: React.FC<Props> = ({ options, handleSelect }) => {
+export const Select: React.FC<SelectProps> = ({ options, handleSelect }) => {
   return (
     <Modal>
       <select
+        style={{
+          backgroundColor: "#fff",
+        }}
         onChange={({ target: { value } }) => {
           handleSelect(value);
         }}
+        autoFocus
       >
         <option disabled selected value="">
           -- select conversation id --
