@@ -2,13 +2,22 @@ import React from "react";
 
 import { Modal } from "../Modal";
 
-export type InputProps = { handleSubmit: (value: string) => void };
+export type InputProps = {
+  handleSubmit: (value: string) => void;
+  type: "inbound" | "outbound";
+};
 
-export const Input: React.FC<InputProps> = ({ handleSubmit }) => {
+export const Input: React.FC<InputProps> = ({ type, handleSubmit }) => {
   const [name, setName] = React.useState("");
 
   return (
     <Modal
+      header="Type in conversation partner name"
+      description={
+        type === "outbound"
+          ? "Press enter to generate a handshake then paste and submit it in the chat."
+          : "You've received a handshake. Type in your partner name to accept or press ESC to decline."
+      }
       handleSubmit={() => {
         handleSubmit(name);
       }}

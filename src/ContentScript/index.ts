@@ -16,6 +16,7 @@ const GLOBAL_SUFFIX = "//crypto-end";
 const HANDSHAKE_INIT_PREFIX = "crypto-init//";
 const HANDSHAKE_ACCEPT_PREFIX = "crypto-accept//";
 const tabId = window.location.hostname;
+let ACTIVE = false;
 
 const reactHandler = new ReactController();
 
@@ -66,13 +67,13 @@ const WATCHED_PREFIXES = [
 type WATCHED_PREFIXES = typeof WATCHED_PREFIXES;
 
 const getContainsXpath = (...strings: string[]): string => {
-  const body = strings.map(text => `contains(text(), '${text}')`);
+  const body = strings.map((text) => `contains(text(), '${text}')`);
 
   return `..//*[${body.join(" or ")}]`;
 };
 
 const watch = (parentNode: Node) => {
-  const isMatch = WATCHED_PREFIXES.some(prefix =>
+  const isMatch = WATCHED_PREFIXES.some((prefix) =>
     parentNode.textContent?.includes(prefix)
   );
   if (isMatch) {
@@ -94,7 +95,7 @@ const watch = (parentNode: Node) => {
         findAndReplaceNodes<WATCHED_PREFIXES>(
           node,
           GLOBAL_PREFIX,
-          async text => {
+          async (text) => {
             const msg = await decipherMessage(text);
 
             return msg;
@@ -105,7 +106,7 @@ const watch = (parentNode: Node) => {
         findAndReplaceNodes<WATCHED_PREFIXES>(
           node,
           HANDSHAKE_INIT_PREFIX,
-          async handshake => {
+          async (handshake) => {
             const [conversationId] = handshake.split(":");
 
             // save private key
@@ -114,7 +115,7 @@ const watch = (parentNode: Node) => {
               storage[tabId];
 
             if (!tabSecrets?.[conversationId]) {
-              reactHandler.openInput(async value => {
+              reactHandler.openInput(async (value) => {
                 const { secret, handshakeResponse } = await acceptHandshake(
                   handshake
                 );
@@ -133,10 +134,11 @@ const watch = (parentNode: Node) => {
                 await navigator.clipboard.writeText(
                   HANDSHAKE_ACCEPT_PREFIX + handshakeResponse + GLOBAL_SUFFIX
                 );
+                init();
                 alert(
-                  "Public key copied to clipboard! Paste it in the conversation"
+                  "Public key copied to clipboard! Paste and submit it in the conversation to complete the handshake. To encrypt your messages select text, right click and choose Cryptify -> Cryptify 🔒"
                 );
-              });
+              }, "inbound");
             }
           },
           "👋"
@@ -146,7 +148,7 @@ const watch = (parentNode: Node) => {
         findAndReplaceNodes<WATCHED_PREFIXES>(
           node,
           HANDSHAKE_ACCEPT_PREFIX,
-          async handshakeResponse => {
+          async (handshakeResponse) => {
             const [conversationId] = handshakeResponse.split(":");
 
             const storage = await browser.storage.sync.get(tabId);
@@ -179,7 +181,10 @@ const watch = (parentNode: Node) => {
 
               // when succesfully computed, refresh nodes
               // TODO: optimize this to only look for messages to decrypt
-              watch(document.body);
+              init();
+              alert(
+                "Success! Your partner accepted the handshake. To encrypt your messages select text, right click and choose Cryptify -> Cryptify 🔒"
+              );
             }
           },
           "🤝"
@@ -189,10 +194,10 @@ const watch = (parentNode: Node) => {
   }
 };
 
-const observer = new MutationObserver(mutations => {
+const observer = new MutationObserver((mutations) => {
   // const t0 = performance.now();
-  mutations.forEach(async mutation => {
-    mutation.addedNodes.forEach(async parentNode => {
+  mutations.forEach(async (mutation) => {
+    mutation.addedNodes.forEach(async (parentNode) => {
       watch(parentNode);
     });
   });
@@ -200,19 +205,35 @@ const observer = new MutationObserver(mutations => {
   // appendTime(t1 - t0);
 });
 
-watch(document.body);
-observer.observe(document.body, {
-  childList: true,
-  characterData: false,
-  subtree: true,
-});
+const init = async () => {
+  // watch
+  watch(document.body);
 
-browser.runtime.onMessage.addListener(async msg => {
+  if (ACTIVE) {
+    return;
+  }
+
+  const data = await browser.storage.sync.get(tabId);
+
+  if (Object.keys(data).length > 0) {
+    console.log("Cryptify is now running on this website!");
+    ACTIVE = true;
+    observer.observe(document.body, {
+      childList: true,
+      characterData: false,
+      subtree: true,
+    });
+  }
+};
+
+init();
+
+browser.runtime.onMessage.addListener(async (msg) => {
   switch (msg.type) {
     case "start": {
       const inputElement = document.activeElement as HTMLElement;
 
-      reactHandler.openInput(async value => {
+      reactHandler.openInput(async (value) => {
         const { privateKey, handshake, conversationId } = await sendHandshake();
 
         const storage = await browser.storage.sync.get(msg.id);
@@ -235,7 +256,7 @@ browser.runtime.onMessage.addListener(async msg => {
           inputElement.focus();
         }
         document.execCommand("paste");
-      });
+      }, "outbound");
 
       return;
       // https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/runtime/onMessage
@@ -249,13 +270,13 @@ browser.runtime.onMessage.addListener(async msg => {
       if (node && text) {
         const secrets = (await browser.storage.sync.get(msg.id))[msg.id];
         const aliases = Object.keys(secrets)
-          .filter(id => secrets[id].secret)
-          .map(id => ({
+          .filter((id) => secrets[id].secret)
+          .map((id) => ({
             alias: secrets[id].alias,
             id,
           }));
 
-        reactHandler.openSelect(async id => {
+        reactHandler.openSelect(async (id) => {
           const encryptedMessage = await sendMessage(
             id,
             secrets[id].secret,
@@ -288,13 +309,21 @@ browser.runtime.onMessage.addListener(async msg => {
 
     case "decrypt": {
       const selection = window.getSelection();
-      const node = selection?.anchorNode;
+      const node = selection?.anchorNode as HTMLElement;
       const text = selection?.toString();
 
-      if (node && text) {
-        const deciphered = await decipherMessage(text);
+      if (node && text?.includes(GLOBAL_PREFIX)) {
+        const html = node.innerHTML;
+        const startIndex = html.indexOf(GLOBAL_PREFIX);
+        const endIndex = html.indexOf(GLOBAL_SUFFIX);
+        const preString = html.slice(0, startIndex);
+        const match = html.slice(startIndex + GLOBAL_PREFIX.length, endIndex);
+        const postString = html.slice(endIndex + GLOBAL_SUFFIX.length);
+
+        const deciphered = await decipherMessage(match);
+
         if (deciphered) {
-          node.textContent = deciphered;
+          node.innerHTML = preString + deciphered + postString;
         }
       }
 

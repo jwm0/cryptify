@@ -37,12 +37,13 @@ export class ReactController {
     this.render();
   }
 
-  openInput(onSubmit: InputProps["handleSubmit"]) {
+  openInput(onSubmit: InputProps["handleSubmit"], type: InputProps["type"]) {
     this.options = {
       handleSubmit: (...args) => {
         onSubmit(...args);
         this.close();
       },
+      type,
     };
     this.type = "Input";
     this.render();

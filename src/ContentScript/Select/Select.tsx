@@ -9,7 +9,10 @@ export type SelectProps = {
 
 export const Select: React.FC<SelectProps> = ({ options, handleSelect }) => {
   return (
-    <Modal>
+    <Modal
+      header="Select conversation partner"
+      description="If you can't find it, make sure to start a new conversation first!"
+    >
       <select
         style={{
           backgroundColor: "#fff",
@@ -17,13 +20,18 @@ export const Select: React.FC<SelectProps> = ({ options, handleSelect }) => {
         onChange={({ target: { value } }) => {
           handleSelect(value);
         }}
+        defaultValue=""
         autoFocus
       >
-        <option disabled selected value="">
+        <option disabled value="">
           -- select conversation id --
         </option>
-        {options.map(o => {
-          return <option value={o.id}>{o.alias}</option>;
+        {options.map((o, i) => {
+          return (
+            <option key={i} value={o.id}>
+              {o.alias}
+            </option>
+          );
         })}
       </select>
     </Modal>
